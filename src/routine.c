@@ -7,7 +7,11 @@
 #include "thread_tool.h"
 
 void idle(int id, int *args) {
-    // TODO:: IDLE ^-^
+    thread_setup(id, args);
+    while (1) {
+        sleep(1);
+        thread_yield();
+    }
 }
 
 void fibonacci(int id, int *args) {
@@ -37,10 +41,31 @@ void fibonacci(int id, int *args) {
 }
 
 void pm(int id, int *args) {
-    // TODO:: pm ^^--^^
+    thread_setup(id, args);
+
+    current_thread->n = current_thread->args[0];
+    for (current_thread->i = 1;; current_thread->i++) {
+        if (current_thread->i == 1) {
+            current_thread->f_cur = 1;
+        } else {
+            int sign = 1;
+            // Minus if n is even.
+            if ((current_thread->i & 1) == 0) {
+                sign = -1;
+            }
+            current_thread->f_cur += sign * current_thread->i;
+        }
+        printf("thread %d: pm(%d) = %d\n", current_thread->id, current_thread->i, current_thread->f_cur);
+        sleep(1);
+        if (current_thread->i == current_thread->n) {
+            thread_exit();
+        } else {
+            thread_yield();
+        }
+    }
 }
 
 void enroll(int id, int *args) {
     // TODO:: enroll !! -^-
+    thread_setup(id, args);
 }
-
