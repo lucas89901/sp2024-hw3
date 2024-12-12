@@ -9,6 +9,7 @@
 void idle(int id, int *args) {
     thread_setup(id, args);
     while (1) {
+        printf("thread %d: idle\n", current_thread->id);
         sleep(1);
         thread_yield();
     }
@@ -66,6 +67,55 @@ void pm(int id, int *args) {
 }
 
 void enroll(int id, int *args) {
-    // TODO:: enroll !! -^-
     thread_setup(id, args);
+
+    // Label for awake.
+    if (setjmp(current_thread->env) == 0) {
+        thread_sleep(current_thread->args[2]);  // s
+    }
+    thread_awake(current_thread->args[3]);  // b
+
+    read_lock();
+    printf("thread %d: acquire read lock\n", current_thread->id);
+    sleep(1);
+    thread_yield();
+
+    current_thread->p_p = current_thread->args[0] /* d_p */ * q_p;
+    current_thread->p_s = current_thread->args[1] /* d_s */ * q_s;
+    read_unlock();
+    printf("thread %d: release read lock, p_p = %d, p_s = %d\n", current_thread->id, current_thread->p_p,
+           current_thread->p_s);
+    sleep(1);
+    thread_yield();
+
+    write_lock();
+    int sw = 0;  // Chosen class is sw.
+    if (current_thread->p_p == current_thread->p_s) {
+        sw = current_thread->args[0] < current_thread->args[1];
+    } else {
+        sw = current_thread->p_p < current_thread->p_s;
+    }
+    // Either class is full.
+    if (q_s == 0) {
+        sw = 0;
+    }
+    if (q_p == 0) {
+        sw = 1;
+    }
+    printf("thread %d: acquire write lock, enroll in ", current_thread->id);
+    if (sw) {
+        --q_s;
+        printf("sw");
+    } else {
+        --q_p;
+        printf("pj");
+    }
+    printf("_class\n");
+    sleep(1);
+    thread_yield();
+
+    write_unlock();
+    printf("thread %d: release write lock\n", current_thread->id);
+    sleep(1);
+    thread_exit();
 }

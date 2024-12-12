@@ -8,12 +8,13 @@
 // The maximum number of threads.
 #define THREAD_MAX 100
 
-
 void sighandler(int signum);
 void scheduler();
 
 #define SCHEDULER_JUMP_YIELD 1
 #define SCHEDULER_JUMP_EXIT 2
+#define SCHEDULER_JUMP_SLEEP 3
+#define SCHEDULER_JUMP_WAIT 4
 
 // The thread control block structure.
 struct tcb {
@@ -26,8 +27,14 @@ struct tcb {
     int waiting_for;
     int sleeping_time;
     jmp_buf env;  // Where the scheduler should jump to.
-    int n, i, f_cur, f_prev; // TODO: Add some variables you wish to keep between switches.
+    // Variables that are kept between switches.
+    int n, i, f_cur, f_prev;
+    int p_p, p_s;
 };
+
+#define WAITING_NONE 0
+#define WAITING_READ 1
+#define WAITING_WRITE 2
 
 // The only one thread in the RUNNING state.
 extern struct tcb *current_thread;
@@ -55,6 +62,21 @@ extern struct tcb_queue ready_queue, waiting_queue;
     do {                                                \
         (queue).head = ((queue).head + 1) % THREAD_MAX; \
         --(queue).size;                                 \
+    } while (0)
+
+extern struct tcb *sleeping_set[THREAD_MAX];
+extern int sleeping_count;
+
+#define sleeping_set_add(tcb)        \
+    do {                             \
+        sleeping_set[tcb->id] = tcb; \
+        ++sleeping_count;            \
+    } while (0)
+
+#define sleeping_set_remove(tcb)      \
+    do {                              \
+        sleeping_set[tcb->id] = NULL; \
+        --sleeping_count;             \
     } while (0)
 
 // The rwlock structure.
@@ -112,28 +134,44 @@ extern jmp_buf sched_buf;
         }                                                   \
     })
 
-#define read_lock()                                                      \
-    ({                                                                   \
+#define read_lock()                                     \
+    ({                                                  \
+        setjmp(current_thread->env);                    \
+        if (rwlock.write_count > 0) {                   \
+            current_thread->waiting_for = WAITING_READ; \
+            longjmp(sched_buf, SCHEDULER_JUMP_WAIT);    \
+        }                                               \
+        ++rwlock.read_count;                            \
     })
 
-#define write_lock()                                                     \
-    ({                                                                   \
+#define write_lock()                                           \
+    ({                                                         \
+        setjmp(current_thread->env);                           \
+        if (rwlock.write_count > 0 || rwlock.read_count > 0) { \
+            current_thread->waiting_for = WAITING_WRITE;       \
+            longjmp(sched_buf, SCHEDULER_JUMP_WAIT);           \
+        }                                                      \
+        ++rwlock.write_count;                                  \
     })
 
-#define read_unlock()                                                                 \
-    ({                                                                                \
+#define read_unlock() ({ --rwlock.read_count; })
+
+#define write_unlock() ({ --rwlock.write_count; })
+
+#define thread_sleep(sec)                                         \
+    ({                                                            \
+        printf("thread %d: sleep %d\n", current_thread->id, sec); \
+        current_thread->sleeping_time = sec;                      \
+        sleeping_set_add(current_thread);                         \
+        longjmp(sched_buf, SCHEDULER_JUMP_SLEEP);                 \
     })
 
-#define write_unlock()                                                                \
-    ({                                                                                \
-    })
-
-#define thread_sleep(sec)                                            \
-    ({                                                               \
-    })
-
-#define thread_awake(t_id)                                                        \
-    ({                                                                            \
+#define thread_awake(t_id)                                   \
+    ({                                                       \
+        if (sleeping_set[t_id]) {                            \
+            tcb_queue_push(ready_queue, sleeping_set[t_id]); \
+            sleeping_set_remove(sleeping_set[t_id]);         \
+        }                                                    \
     })
 
 #define thread_exit()                                    \
